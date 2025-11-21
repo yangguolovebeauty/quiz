@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+
+    <title>反诈知识问答 - 开始答题</title>
+
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            background: linear-gradient(to bottom, #091a2a, #000);
+            font-family: "Microsoft YaHei", sans-serif;
+            color: #d6eaff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        body {
+            padding-top: env(safe-area-inset-top, 20px);
+            padding-bottom: env(safe-area-inset-bottom, 20px);
+        }
+
+        .header {
+            position: relative;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: 20px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 26px;
+            text-shadow: 0 0 6px rgba(0,150,255,0.6);
+        }
+
+        .fullscreen-btn {
+            position: fixed;
+            right: 8px;
+            top: 8px;
+            background: rgba(0, 119, 221, 0.2);
+            border: 1px solid rgba(0, 150, 255, 0.3);
+            border-radius: 4px;
+            color: rgba(102, 179, 255, 0.7);
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            z-index: 1000;
+            opacity: 0.6;
+        }
+
+        .fullscreen-btn:hover {
+            background: rgba(0, 119, 221, 0.4);
+            color: rgba(102, 179, 255, 0.9);
+            opacity: 1;
+            box-shadow: 0 0 6px rgba(0, 150, 255, 0.4);
+        }
+
+        .container {
+            width: 90%;
+            max-width: 500px;
+            padding: 20px;
+            margin-top: 20px;
+
+            background: rgba(20, 40, 70, 0.45);
+            border: 1px solid rgba(0,150,255,0.25);
+            border-radius: 15px;
+            box-shadow: 0 0 20px rgba(0,150,255,0.25);
+
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .qr-box {
+            width: min(70vw, 260px);
+            height: min(70vw, 260px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 15px;
+
+            background: rgba(255,255,255,0.08);
+            border-radius: 12px;
+            box-shadow: 0 0 12px rgba(0,150,255,0.35);
+            position: relative;
+        }
+
+        .qr-box img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .loading {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #66b3ff;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            100% { transform: rotate(360deg); }
+        }
+
+        .exam-link {
+            margin-top: 12px;
+            font-size: 14px;
+            color: #66b3ff;
+            text-align: center;
+            word-break: break-all;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 14px 0;
+            margin-top: 25px;
+            font-size: 18px;
+
+            background: #0077dd;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            box-shadow: 0 0 12px rgba(0,150,255,0.5);
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        .btn:hover {
+            background: #0088ff;
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>国家反诈中心</h1>
+</div>
+
+<div class="fullscreen-btn" id="fullscreenBtn" title="全屏显示">
+    ⛶
+</div>
+
+<div class="container">
+    <h2>开始答题</h2>
+    <p>请使用手机扫描二维码进入答题</p>
+
+    <div class="qr-box">
+        <div id="loading" class="loading"></div>
+        <img id="qrimg" style="display:none;">
+    </div>
+
+    <div id="examLink" class="exam-link">加载中...</div>
+
+    <button class="btn" onclick="goStart()">开始答题</button>
+</div>
+
+<script>
+    // 全屏状态管理
+    let fullscreenRetryCount = 0;
+    const MAX_RETRY_COUNT = 10;
+
+    function isFullscreen() {
+        return localStorage.getItem('fullscreen') === 'true';
+    }
+
+    function setFullscreenState(state) {
+        localStorage.setItem('fullscreen', state.toString());
+    }
+
+    function toggleFullscreen() {
+        if (!document.fullscreenElement) {
+            enterFullscreen();
+        } else {
+            exitFullscreen();
+        }
+    }
+
+    function enterFullscreen() {
+        const element = document.documentElement;
+
+        return new Promise((resolve, reject) => {
+            const fullscreenPromise = element.requestFullscreen?.() ||
+                element.webkitRequestFullscreen?.() ||
+                element.msRequestFullscreen?.();
+
+            if (fullscreenPromise) {
+                fullscreenPromise
+                    .then(() => {
+                        setFullscreenState(true);
+                        fullscreenRetryCount = 0;
+                        resolve();
+                    })
+                    .catch(error => {
+                        console.log('全屏请求被拒绝:', error);
+                        reject(error);
+                    });
+            } else {
+                reject(new Error('全屏API不可用'));
+            }
+        });
+    }
+
+    function exitFullscreen() {
+        const exitPromise = document.exitFullscreen?.() ||
+            document.webkitExitFullscreen?.() ||
+            document.msExitFullscreen?.();
+
+        if (exitPromise) {
+            exitPromise.then(() => {
+                setFullscreenState(false);
+            });
+        }
+    }
+
+    function updateFullscreenButton() {
+        const isFull = !!document.fullscreenElement;
+        if (fullscreenBtn) {
+            fullscreenBtn.innerHTML = isFull ? '⛷' : '⛶';
+            fullscreenBtn.title = isFull ? '退出全屏' : '全屏显示';
+        }
+        setFullscreenState(isFull);
+    }
+
+    // 强制保持全屏状态
+    function forceKeepFullscreen() {
+        if (isFullscreen() && !document.fullscreenElement) {
+            if (fullscreenRetryCount < MAX_RETRY_COUNT) {
+                fullscreenRetryCount++;
+                console.log(`尝试重新进入全屏 (${fullscreenRetryCount}/${MAX_RETRY_COUNT})`);
+
+                enterFullscreen().catch(() => {
+                    // 如果失败，稍后重试
+                    setTimeout(forceKeepFullscreen, 500);
+                });
+            } else {
+                console.log('达到最大重试次数，停止全屏保持');
+            }
+        }
+    }
+
+    // 检查并恢复全屏状态
+    function checkFullscreenState() {
+        if (isFullscreen() && !document.fullscreenElement) {
+            forceKeepFullscreen();
+        }
+    }
+
+    // 重写 alert 函数，防止退出全屏
+    const originalAlert = window.alert;
+    window.alert = function(message) {
+        // 先退出全屏再显示alert，然后重新进入全屏
+        if (document.fullscreenElement) {
+            exitFullscreen().then(() => {
+                originalAlert(message);
+                setTimeout(() => {
+                    if (isFullscreen()) {
+                        enterFullscreen();
+                    }
+                }, 100);
+            });
+        } else {
+            originalAlert(message);
+        }
+    };
+
+    // 监听页面可见性变化（防止切换标签页导致退出全屏）
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden && isFullscreen() && !document.fullscreenElement) {
+            setTimeout(enterFullscreen, 300);
+        }
+    });
+
+    // 监听页面获取焦点事件
+    window.addEventListener('focus', function() {
+        if (isFullscreen() && !document.fullscreenElement) {
+            setTimeout(enterFullscreen, 200);
+        }
+    });
+
+    // 页面跳转前保存状态
+    window.addEventListener('beforeunload', function() {
+        setFullscreenState(!!document.fullscreenElement);
+    });
+
+    function fetchQRCode() {
+        fetch("/api/start-info")
+            .then(r => r.json())
+            .then(data => {
+                const qr = document.getElementById("qrimg");
+                const loading = document.getElementById("loading");
+
+                qr.src = data.qrcode;
+                qr.style.display = "block";
+                loading.style.display = "none";
+
+                document.getElementById("examLink").innerText = data.exam_url;
+                window.REAL_EXAM_URL = data.exam_url;
+            })
+            .catch(() => {
+                document.getElementById("examLink").innerText = "加载失败，请刷新重试";
+            });
+    }
+
+    function goStart() {
+        // 跳转前确保全屏状态已保存
+        setFullscreenState(!!document.fullscreenElement);
+        if (window.REAL_EXAM_URL) {
+            location.href = window.REAL_EXAM_URL;
+        }
+    }
+
+    // 初始化
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+
+    if (fullscreenBtn) {
+        fullscreenBtn.addEventListener('click', toggleFullscreen);
+    }
+
+    // 监听全屏状态变化
+    document.addEventListener('fullscreenchange', updateFullscreenButton);
+    document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+    document.addEventListener('mozfullscreenchange', updateFullscreenButton);
+    document.addEventListener('MSFullscreenChange', updateFullscreenButton);
+
+    // 页面加载时检查全屏状态
+    document.addEventListener('DOMContentLoaded', function() {
+        // 延迟执行，确保页面完全加载
+        setTimeout(() => {
+            if (isFullscreen() && !document.fullscreenElement) {
+                enterFullscreen().catch(() => {
+                    // 如果自动全屏失败，不强制重试
+                    console.log('页面加载时自动全屏失败');
+                });
+            }
+            fetchQRCode();
+        }, 500);
+    });
+
+    // 更频繁的检查（但只在需要时重试）
+    setInterval(checkFullscreenState, 1000);
+
+    // 键盘快捷键
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'F11') {
+            event.preventDefault();
+            toggleFullscreen();
+        }
+    });
+
+    // 阻止某些可能导致退出全屏的默认行为
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape' && document.fullscreenElement) {
+            // 阻止ESC键退出全屏
+            event.preventDefault();
+            event.stopPropagation();
+        }
+    }, true);
+</script>
+
+</body>
+</html>

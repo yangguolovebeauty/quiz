@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="zh">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>反诈答题</title>
+    <style>
+        body {
+            background: #000814;
+            color: #cfe8ff;
+            font-family: "Microsoft YaHei";
+            text-align: center;
+            padding: 20px;
+            margin: 0;
+        }
+        .wrap {
+            width: 90%;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 25px;
+            background: rgba(20,40,70,0.4);
+            border-radius: 12px;
+            box-shadow: 0 0 12px rgba(0,150,255,0.3);
+            border: 1px solid rgba(50,100,180,0.2);
+        }
+        h2 {
+            color: #9fd1ff;
+            margin: 0 0 20px 0;
+            font-size: 24px;
+        }
+        .progress {
+            height: 12px;
+            background: #001a33;
+            border-radius: 8px;
+            margin: 15px 0;
+            overflow: hidden;
+            border: 1px solid #1e3a5f;
+        }
+        .progress > i {
+            display: block;
+            height: 100%;
+            background: linear-gradient(90deg, #0066cc, #0099ff);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .small {
+            font-size: 14px;
+            color: #8fb3d5;
+            margin: 8px 0;
+        }
+        .question {
+            margin: 25px 0;
+            padding: 20px;
+            border-radius: 10px;
+            background: rgba(13,31,61,0.6);
+            border: 1px solid rgba(15,60,120,0.3);
+            text-align: left;
+        }
+        .options {
+            margin-top: 15px;
+        }
+        .option {
+            margin: 12px 0;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        .option:hover {
+            background: rgba(0,102,204,0.1);
+        }
+        input[type="radio"], input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: #0066cc;
+        }
+        button {
+            padding: 12px 24px;
+            border-radius: 6px;
+            border: none;
+            background: #0066cc;
+            color: white;
+            cursor: pointer;
+            font-family: "Microsoft YaHei";
+            font-size: 16px;
+            margin: 0 8px;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #0080ff;
+        }
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            background: #1e3a5f;
+        }
+        #submit {
+            background: #16a34a;
+        }
+        #submit:hover {
+            background: #22c55e;
+        }
+        .controls {
+            margin-top: 25px;
+            text-align: center;
+        }
+        /* 防止全屏时出现滚动条 */
+        :fullscreen {
+            overflow: hidden;
+        }
+
+        :-webkit-full-screen {
+            overflow: hidden;
+        }
+
+        :-moz-full-screen {
+            overflow: hidden;
+        }
+
+        :-ms-fullscreen {
+            overflow: hidden;
+        }
+
+        /* 更隐秘的全屏按钮 */
+        .fullscreen-btn {
+            position: fixed;
+            right: 6px;
+            top: 6px;
+            background: rgba(0, 119, 221, 0.15);
+            border: 1px solid rgba(0, 150, 255, 0.2);
+            border-radius: 3px;
+            color: rgba(102, 179, 255, 0.6);
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            z-index: 1000;
+            opacity: 0.5;
+        }
+
+        .fullscreen-btn:hover {
+            background: rgba(0, 119, 221, 0.3);
+            color: rgba(102, 179, 255, 0.9);
+            opacity: 1;
+            box-shadow: 0 0 4px rgba(0, 150, 255, 0.3);
+        }
+    </style>
+</head>
+<body>
+<div class="fullscreen-btn" id="fullscreenBtn" title="全屏显示">
+    ⛶
+</div>
+<div class="wrap">
+    <h2>反诈知识答题</h2>
+
+    <div id="progressWrap">
+        <div class="progress">
+            <i id="progressBar"></i>
+        </div>
+        <p id="progressText" class="small">进度 0 / 0</p>
+    </div>
+
+    <div id="qbox"></div>
+
+    <div class="controls">
+        <button id="prev">上一题</button>
+        <button id="next">下一题</button>
+        <button id="submit" style="display:none">提交答卷</button>
+    </div>
+</div>
+
+<script>
+    // 全屏状态管理
+    function isFullscreen() {
+        return localStorage.getItem('fullscreen') === 'true';
+    }
+
+    function setFullscreenState(state) {
+        localStorage.setItem('fullscreen', state.toString());
+    }
+
+    function toggleFullscreen() {
+        if (!document.fullscreenElement) {
+            enterFullscreen();
+        } else {
+            exitFullscreen();
+        }
+    }
+
+    function enterFullscreen() {
+        const element = document.documentElement;
+        if (element.requestFullscreen) {
+            element.requestFullscreen();
+        } else if (element.webkitRequestFullscreen) {
+            element.webkitRequestFullscreen();
+        } else if (element.msRequestFullscreen) {
+            element.msRequestFullscreen();
+        }
+        setFullscreenState(true);
+    }
+
+    function exitFullscreen() {
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+        } else if (document.msExitFullscreen) {
+            document.msExitFullscreen();
+        }
+        setFullscreenState(false);
+    }
+
+    function updateFullscreenButton() {
+        const isFull = !!document.fullscreenElement;
+        fullscreenBtn.innerHTML = isFull ? '⛷' : '⛶';
+        fullscreenBtn.title = isFull ? '退出全屏' : '全屏显示';
+        setFullscreenState(isFull);
+    }
+
+    // 检查并恢复全屏状态
+    function checkFullscreenState() {
+        if (isFullscreen() && !document.fullscreenElement) {
+            setTimeout(enterFullscreen, 100);
+        }
+    }
+    // 添加这个函数
+    function showMessage(message) {
+        // 可以在这里实现自定义的提示框，不打断全屏状态
+        // 简单实现：使用 console.log 并继续全屏
+        console.log("提示:", message);
+
+        // 或者使用一个小的 toast 提示
+        const toast = document.createElement('div');
+        toast.textContent = message;
+        toast.style.cssText = `
+        position: fixed;
+        top: 10%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(0, 0, 0, 1);
+        color: white;
+        padding: 12px 20px;
+        border-radius: 6px;
+        z-index: 10000;
+        font-size: 14px;
+    `;
+        document.body.appendChild(toast);
+        setTimeout(() => {
+            document.body.removeChild(toast);
+        }, 2000);
+
+        return false;
+    }
+    // 初始化
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+
+    fullscreenBtn.addEventListener('click', toggleFullscreen);
+
+    // 监听全屏状态变化
+    document.addEventListener('fullscreenchange', updateFullscreenButton);
+    document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+    document.addEventListener('mozfullscreenchange', updateFullscreenButton);
+    document.addEventListener('MSFullscreenChange', updateFullscreenButton);
+
+    // 页面加载时检查全屏状态
+    document.addEventListener('DOMContentLoaded', function() {
+        checkFullscreenState();
+    });
+
+    // 定期检查全屏状态
+    setInterval(checkFullscreenState, 1000);
+
+    // 键盘快捷键
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'F11') {
+            event.preventDefault();
+            toggleFullscreen();
+        }
+    });
+    // 必须身份验证后才能访问
+    const name = localStorage.getItem("quiz_name");
+    const phone = localStorage.getItem("quiz_phone");
+    const idcard = localStorage.getItem("quiz_idcard");
+    if(!name || !phone || !idcard){
+        location.href = "/identity.html";
+    }
+
+    let qs = [], order = [], idx = 0, answers = {};
+
+    function fetchQuestions(){
+        return fetch("/api/questions").then(r=>r.json());
+    }
+
+    fetchQuestions().then(arr=>{
+        qs = arr;
+        // 随机顺序
+        order = qs.map((_,i)=>i);
+        for(let i=order.length-1;i>0;i--){
+            const j = Math.floor(Math.random()*(i+1));
+            [order[i],order[j]]=[order[j],order[i]];
+        }
+        render();
+    });
+
+    function render(){
+        const q = qs[order[idx]];
+        const box = document.getElementById("qbox");
+        box.innerHTML = "";
+
+        const wrap = document.createElement("div");
+        wrap.className = "question";
+        wrap.innerHTML = `<div style="font-size: 18px; margin-bottom: 15px;"><b>${idx+1}.</b> ${q.question}</div>`;
+
+        const opts = document.createElement("div");
+        opts.className="options";
+
+        if(q.type==="single" || q.type==="judge"){
+            q.options.forEach((o,i)=>{
+                const row=document.createElement("div");
+                row.className="option";
+                const r=document.createElement("input");
+                r.type="radio"; r.name="opt"; r.value=i;
+                r.id = `opt-${i}`;
+                if(answers[q.id]?.includes(i)) r.checked=true;
+                r.onchange=()=>{ answers[q.id]=[i]; updateButtons(); };
+                row.appendChild(r);
+                const label = document.createElement("label");
+                label.htmlFor = `opt-${i}`;
+                label.textContent = o;
+                label.style.cursor = "pointer";
+                label.style.flex = "1";
+                row.appendChild(label);
+                opts.appendChild(row);
+            });
+        } else {
+            q.options.forEach((o,i)=>{
+                const row=document.createElement("div");
+                row.className="option";
+                const c=document.createElement("input");
+                c.type="checkbox"; c.value=i;
+                c.id = `chk-${i}`;
+                if(answers[q.id]?.includes(i)) c.checked=true;
+                c.onchange=()=>{
+                    const cur=answers[q.id]||[];
+                    if(c.checked){
+                        if(!cur.includes(i)) cur.push(i);
+                    } else {
+                        const p=cur.indexOf(i); if(p>=0) cur.splice(p,1);
+                    }
+                    answers[q.id]=cur;
+                    updateButtons();
+                };
+                row.appendChild(c);
+                const label = document.createElement("label");
+                label.htmlFor = `chk-${i}`;
+                label.textContent = o;
+                label.style.cursor = "pointer";
+                label.style.flex = "1";
+                row.appendChild(label);
+                opts.appendChild(row);
+            });
+        }
+
+        wrap.appendChild(opts);
+        box.appendChild(wrap);
+
+        updateProgress();
+        updateButtons();
+    }
+
+    function updateProgress(){
+        const pct = Math.round(((idx+1)/order.length)*100);
+        document.getElementById("progressBar").style.width = pct+"%";
+        document.getElementById("progressText").innerText = `进度 ${idx+1} / ${order.length}`;
+    }
+
+    function updateButtons(){
+        document.getElementById("prev").disabled = idx===0;
+        if(idx===order.length-1){
+            document.getElementById("next").style.display="none";
+            document.getElementById("submit").style.display="inline-block";
+        } else {
+            document.getElementById("next").style.display="inline-block";
+            document.getElementById("submit").style.display="none";
+        }
+    }
+
+    document.getElementById("prev").onclick=()=>{ if(idx>0){ idx--; render(); } };
+    document.getElementById("next").onclick=()=>{ if(idx<order.length-1){ idx++; render(); } };
+
+    document.getElementById("submit").onclick=async ()=>{
+        const payload = { name, phone, idcard, answers:{} };
+        order.forEach(i=>{ const q=qs[i]; payload.answers[q.id]=answers[q.id]||[]; });
+        const r=await fetch("/api/submit",{
+            method:"POST", headers:{"Content-Type":"application/json"},
+            body:JSON.stringify(payload)
+        });
+        if(!r.ok){ showMessage("提交失败:"+await r.text()); return; }
+        const j=await r.json();
+
+        // 跳转到兑换码页面
+        location.href = `/reward.html?score=${j.score}&total=${j.total}&code=${encodeURIComponent(j.code||"")}`;
+    };
+</script>
+</body>
+</html>

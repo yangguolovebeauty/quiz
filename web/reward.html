@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>成绩查询 - 反诈答题</title>
+    <style>
+        body {
+            background: #000814;
+            color: #cfe8ff;
+            font-family: "Microsoft YaHei";
+            text-align: center;
+            padding: 30px;
+            margin: 0;
+        }
+        .wrap {
+            width: 90%;
+            max-width: 600px;
+            margin: 40px auto;
+            padding: 30px;
+            background: rgba(20,40,70,0.4);
+            border-radius: 12px;
+            box-shadow: 0 0 12px rgba(0,150,255,0.3);
+            border: 1px solid rgba(50,100,180,0.2);
+        }
+        h1 {
+            color: #9fd1ff;
+            margin: 0 0 25px 0;
+            font-size: 28px;
+        }
+        .score-text {
+            font-size: 20px;
+            margin: 20px 0;
+            color: #cfe8ff;
+        }
+        .codeBox {
+            margin: 25px 0;
+            font-size: 24px;
+            color: #FFD700;
+            letter-spacing: 3px;
+            background: rgba(255,215,0,0.1);
+            padding: 15px 25px;
+            border-radius: 10px;
+            display: inline-block;
+            border: 1px solid rgba(255,215,0,0.3);
+            font-family: monospace;
+        }
+        button {
+            margin-top: 25px;
+            padding: 14px 30px;
+            border: none;
+            border-radius: 6px;
+            background: #0066cc;
+            color: white;
+            cursor: pointer;
+            font-family: "Microsoft YaHei";
+            font-size: 16px;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #0080ff;
+        }
+        #congrats {
+            font-size: 26px;
+            color: #FFD700;
+            margin: 20px 0;
+            font-weight: bold;
+            text-shadow: 0 0 10px rgba(255,215,0,0.5);
+        }
+        #codeSection {
+            margin: 30px 0;
+        }
+        .result-info {
+            font-size: 16px;
+            color: #8fb3d5;
+            margin: 15px 0;
+        }
+        /* 防止全屏时出现滚动条 */
+        :fullscreen {
+            overflow: hidden;
+        }
+
+        :-webkit-full-screen {
+            overflow: hidden;
+        }
+
+        :-moz-full-screen {
+            overflow: hidden;
+        }
+
+        :-ms-fullscreen {
+            overflow: hidden;
+        }
+
+        /* 更隐秘的全屏按钮 */
+        .fullscreen-btn {
+            position: fixed;
+            right: 6px;
+            top: 6px;
+            background: rgba(0, 119, 221, 0.15);
+            border: 1px solid rgba(0, 150, 255, 0.2);
+            border-radius: 3px;
+            color: rgba(102, 179, 255, 0.6);
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            z-index: 1000;
+            opacity: 0.5;
+        }
+
+        .fullscreen-btn:hover {
+            background: rgba(0, 119, 221, 0.3);
+            color: rgba(102, 179, 255, 0.9);
+            opacity: 1;
+            box-shadow: 0 0 4px rgba(0, 150, 255, 0.3);
+        }
+    </style>
+</head>
+<body>
+<div class="fullscreen-btn" id="fullscreenBtn" title="全屏显示">
+    ⛶
+</div>
+<div class="wrap">
+    <h1>答题成绩</h1>
+
+    <div class="score-text" id="scoreText"></div>
+
+    <div class="result-info">
+        <p>感谢您参与反诈知识答题</p>
+        <p>提高防范意识，守护财产安全</p>
+    </div>
+
+    <div id="codeSection" style="display:none;">
+        <div id="congrats">🎉 恭喜获得兑换码！ 🎉</div>
+        <div class="codeBox" id="code"></div>
+        <p style="color: #8fb3d5; font-size: 14px;">请妥善保管您的兑换码</p>
+    </div>
+
+    <button onclick="goHome()">返回首页</button>
+</div>
+
+<!-- confetti 动画库 -->
+<script src="/js/confetti.js"></script>
+
+<script>
+    // 全屏状态管理
+    function isFullscreen() {
+        return localStorage.getItem('fullscreen') === 'true';
+    }
+
+    function setFullscreenState(state) {
+        localStorage.setItem('fullscreen', state.toString());
+    }
+
+    function toggleFullscreen() {
+        if (!document.fullscreenElement) {
+            enterFullscreen();
+        } else {
+            exitFullscreen();
+        }
+    }
+
+    function enterFullscreen() {
+        const element = document.documentElement;
+        if (element.requestFullscreen) {
+            element.requestFullscreen();
+        } else if (element.webkitRequestFullscreen) {
+            element.webkitRequestFullscreen();
+        } else if (element.msRequestFullscreen) {
+            element.msRequestFullscreen();
+        }
+        setFullscreenState(true);
+    }
+
+    function exitFullscreen() {
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+        } else if (document.msExitFullscreen) {
+            document.msExitFullscreen();
+        }
+        setFullscreenState(false);
+    }
+
+    function updateFullscreenButton() {
+        const isFull = !!document.fullscreenElement;
+        fullscreenBtn.innerHTML = isFull ? '⛷' : '⛶';
+        fullscreenBtn.title = isFull ? '退出全屏' : '全屏显示';
+        setFullscreenState(isFull);
+    }
+
+    // 检查并恢复全屏状态
+    function checkFullscreenState() {
+        if (isFullscreen() && !document.fullscreenElement) {
+            setTimeout(enterFullscreen, 100);
+        }
+    }
+
+    // 初始化
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+
+    fullscreenBtn.addEventListener('click', toggleFullscreen);
+
+    // 监听全屏状态变化
+    document.addEventListener('fullscreenchange', updateFullscreenButton);
+    document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+    document.addEventListener('mozfullscreenchange', updateFullscreenButton);
+    document.addEventListener('MSFullscreenChange', updateFullscreenButton);
+
+    // 页面加载时检查全屏状态
+    document.addEventListener('DOMContentLoaded', function() {
+        checkFullscreenState();
+    });
+
+    // 定期检查全屏状态
+    setInterval(checkFullscreenState, 1000);
+
+    // 键盘快捷键
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'F11') {
+            event.preventDefault();
+            toggleFullscreen();
+        }
+    });
+    const url = new URL(location.href);
+    const score = url.searchParams.get("score");
+    const total = url.searchParams.get("total");
+    const code = url.searchParams.get("code");
+
+    document.getElementById("scoreText").innerText = `得分：${score} / ${total}`;
+
+    if(code && code !== "null" && code !== "undefined"){
+        document.getElementById("codeSection").style.display="block";
+        document.getElementById("code").innerText = code;
+
+        // 撒花动画（3 秒）
+        confetti({
+            particleCount: 150,
+            spread: 80,
+            origin: { y: 0.6 },
+            colors: ['#0066cc', '#0099ff', '#00ccff', '#FFD700']
+        });
+
+        let interval = setInterval(() => {
+            confetti({
+                particleCount: 40,
+                spread: 60,
+                colors: ['#0066cc', '#0099ff', '#00ccff', '#FFD700']
+            });
+        }, 500);
+
+        setTimeout(() => clearInterval(interval), 3000);
+    }
+
+    function goHome(){
+        localStorage.clear();  // 清掉 session 信息
+        location.href = "/";
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>填写身份信息 - 反诈答题</title>
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        body { background: #000814; color: #cfe8ff; font-family: "Microsoft YaHei"; text-align:center; padding:30px }
+        .box {
+            width: 380px; margin: auto; padding:20px;
+            background: rgba(20,40,70,0.4);
+            border-radius:12px;
+            box-shadow:0 0 12px rgba(0,150,255,0.3);
+        }
+        input {
+            width: 90%; padding: 10px; margin: 10px auto;
+            border: 1px solid #1e3a5f; background:#001a33;
+            color:#cfe8ff; border-radius:6px;
+        }
+        .btn {
+            margin-top: 15px; padding: 12px 30px;
+            background:#0066cc; color:white; border:none;
+            border-radius:6px; cursor:pointer;
+        }
+        /* 防止全屏时出现滚动条 */
+        :fullscreen {
+            overflow: hidden;
+        }
+
+        :-webkit-full-screen {
+            overflow: hidden;
+        }
+
+        :-moz-full-screen {
+            overflow: hidden;
+        }
+
+        :-ms-fullscreen {
+            overflow: hidden;
+        }
+
+        /* 更隐秘的全屏按钮 */
+        .fullscreen-btn {
+            position: fixed;
+            right: 6px;
+            top: 6px;
+            background: rgba(0, 119, 221, 0.15);
+            border: 1px solid rgba(0, 150, 255, 0.2);
+            border-radius: 3px;
+            color: rgba(102, 179, 255, 0.6);
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            z-index: 1000;
+            opacity: 0.5;
+        }
+
+        .fullscreen-btn:hover {
+            background: rgba(0, 119, 221, 0.3);
+            color: rgba(102, 179, 255, 0.9);
+            opacity: 1;
+            box-shadow: 0 0 4px rgba(0, 150, 255, 0.3);
+        }
+    </style>
+</head>
+<body>
+<div class="fullscreen-btn" id="fullscreenBtn" title="全屏显示">
+    ⛶
+</div>
+<h2>请输入身份信息</h2>
+
+<div class="box">
+    <input id="name" placeholder="姓名">
+    <input id="idcard" placeholder="身份证号">
+    <input id="phone" placeholder="手机号">
+
+    <button class="btn" onclick="next()">开始答题</button>
+</div>
+
+
+<script>
+    // 全屏状态管理
+    let fullscreenRetryCount = 0;
+    const MAX_RETRY_COUNT = 10;
+
+    function isFullscreen() {
+        return localStorage.getItem('fullscreen') === 'true';
+    }
+
+    function setFullscreenState(state) {
+        localStorage.setItem('fullscreen', state.toString());
+    }
+
+    function toggleFullscreen() {
+        if (!document.fullscreenElement) {
+            enterFullscreen();
+        } else {
+            exitFullscreen();
+        }
+    }
+
+    function enterFullscreen() {
+        const element = document.documentElement;
+
+        return new Promise((resolve, reject) => {
+            const fullscreenPromise = element.requestFullscreen?.() ||
+                element.webkitRequestFullscreen?.() ||
+                element.msRequestFullscreen?.();
+
+            if (fullscreenPromise) {
+                fullscreenPromise
+                    .then(() => {
+                        setFullscreenState(true);
+                        fullscreenRetryCount = 0;
+                        resolve();
+                    })
+                    .catch(error => {
+                        console.log('全屏请求被拒绝:', error);
+                        reject(error);
+                    });
+            } else {
+                reject(new Error('全屏API不可用'));
+            }
+        });
+    }
+
+    function exitFullscreen() {
+        const exitPromise = document.exitFullscreen?.() ||
+            document.webkitExitFullscreen?.() ||
+            document.msExitFullscreen?.();
+
+        if (exitPromise) {
+            exitPromise.then(() => {
+                setFullscreenState(false);
+            });
+        }
+    }
+
+    function updateFullscreenButton() {
+        const isFull = !!document.fullscreenElement;
+        if (fullscreenBtn) {
+            fullscreenBtn.innerHTML = isFull ? '⛷' : '⛶';
+            fullscreenBtn.title = isFull ? '退出全屏' : '全屏显示';
+        }
+        setFullscreenState(isFull);
+    }
+
+    // 强制保持全屏状态
+    function forceKeepFullscreen() {
+        if (isFullscreen() && !document.fullscreenElement) {
+            if (fullscreenRetryCount < MAX_RETRY_COUNT) {
+                fullscreenRetryCount++;
+                console.log(`尝试重新进入全屏 (${fullscreenRetryCount}/${MAX_RETRY_COUNT})`);
+
+                enterFullscreen().catch(() => {
+                    // 如果失败，稍后重试
+                    setTimeout(forceKeepFullscreen, 500);
+                });
+            } else {
+                console.log('达到最大重试次数，停止全屏保持');
+            }
+        }
+    }
+
+    // 检查并恢复全屏状态
+    function checkFullscreenState() {
+        if (isFullscreen() && !document.fullscreenElement) {
+            forceKeepFullscreen();
+        }
+    }
+
+    // 重写 alert 函数，防止退出全屏
+    const originalAlert = window.alert;
+    window.alert = function(message) {
+        // 先退出全屏再显示alert，然后重新进入全屏
+        if (document.fullscreenElement) {
+            exitFullscreen().then(() => {
+                originalAlert(message);
+                setTimeout(() => {
+                    if (isFullscreen()) {
+                        enterFullscreen();
+                    }
+                }, 100);
+            });
+        } else {
+            originalAlert(message);
+        }
+    };
+
+    // 监听页面可见性变化（防止切换标签页导致退出全屏）
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden && isFullscreen() && !document.fullscreenElement) {
+            setTimeout(enterFullscreen, 300);
+        }
+    });
+
+    // 监听页面获取焦点事件
+    window.addEventListener('focus', function() {
+        if (isFullscreen() && !document.fullscreenElement) {
+            setTimeout(enterFullscreen, 200);
+        }
+    });
+
+    // 页面跳转前保存状态
+    window.addEventListener('beforeunload', function() {
+        setFullscreenState(!!document.fullscreenElement);
+    });
+
+    // 初始化
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+
+    if (fullscreenBtn) {
+        fullscreenBtn.addEventListener('click', toggleFullscreen);
+    }
+
+    // 监听全屏状态变化
+    document.addEventListener('fullscreenchange', updateFullscreenButton);
+    document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+    document.addEventListener('mozfullscreenchange', updateFullscreenButton);
+    document.addEventListener('MSFullscreenChange', updateFullscreenButton);
+
+    // 页面加载时检查全屏状态
+    document.addEventListener('DOMContentLoaded', function() {
+        // 延迟执行，确保页面完全加载
+        setTimeout(() => {
+            if (isFullscreen() && !document.fullscreenElement) {
+                enterFullscreen().catch(() => {
+                    // 如果自动全屏失败，不强制重试
+                    console.log('页面加载时自动全屏失败');
+                });
+            }
+            fetchQRCode();
+        }, 500);
+    });
+
+    // 更频繁的检查（但只在需要时重试）
+    setInterval(checkFullscreenState, 1000);
+
+    // 键盘快捷键
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'F11') {
+            event.preventDefault();
+            toggleFullscreen();
+        }
+    });
+
+    // 阻止某些可能导致退出全屏的默认行为
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape' && document.fullscreenElement) {
+            // 阻止ESC键退出全屏
+            event.preventDefault();
+            event.stopPropagation();
+        }
+    }, true);
+
+
+    function validPhone(p){ return /^\d{11}$/.test(p); }
+    function validId(id){ return id.trim().length===15 || id.trim().length===18; }
+    // 添加这个函数
+    function showMessage(message) {
+        // 可以在这里实现自定义的提示框，不打断全屏状态
+        // 简单实现：使用 console.log 并继续全屏
+        console.log("提示:", message);
+
+        // 或者使用一个小的 toast 提示
+        const toast = document.createElement('div');
+        toast.textContent = message;
+        toast.style.cssText = `
+        position: fixed;
+        top: 10%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(0, 0, 0, 1);
+        color: white;
+        padding: 12px 20px;
+        border-radius: 6px;
+        z-index: 10000;
+        font-size: 14px;
+    `;
+        document.body.appendChild(toast);
+        setTimeout(() => {
+            document.body.removeChild(toast);
+        }, 2000);
+
+        return false;
+    }
+    function next() {
+        const name = document.getElementById("name").value.trim();
+        const phone = document.getElementById("phone").value.trim();
+        const idc = document.getElementById("idcard").value.trim();
+        if(!name){ showMessage("请输入姓名"); return; }
+        if(!validPhone(phone)){ showMessage("手机号格式错误"); return; }
+        if(!validId(idc)){ showMessage("身份证格式错误"); return; }
+        localStorage.setItem("quiz_name", name);
+        localStorage.setItem("quiz_phone", phone);
+        localStorage.setItem("quiz_idcard", idc);
+        location.href = "/quiz.html";
+    };
+</script>
+</body>
+</html>

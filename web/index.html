@@ -1,0 +1,183 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>反诈答题</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>
+        body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial; background: linear-gradient(180deg,#07102a 0%, #000 100%); color:#e6f2ff; }
+        .wrap { max-width:900px; margin:24px auto; padding:20px; background: rgba(8,18,40,0.6); border-radius:12px; border:1px solid rgba(50,100,180,0.12); }
+        h1 { color:#9fd1ff; margin:0 0 10px; }
+        .intro { margin-bottom:12px; }
+        input[type="text"]{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.02);color:#e6f2ff}
+        button { padding:10px 14px;border-radius:8px;border:none;background:#0c4fd8;color:white; cursor:pointer }
+        .question { margin-top:14px;padding:14px;border-radius:10px;background:linear-gradient(180deg, rgba(13,31,61,0.6), rgba(10,20,40,0.6)); border:1px solid rgba(15,60,120,0.12) }
+        .options { margin-top:10px }
+        .option { margin:8px 0; display:flex; align-items:center; gap:10px }
+        .progress { height:10px;background:#0f213b;border-radius:8px;margin-top:10px;overflow:hidden }
+        .progress > i { display:block;height:100%;background:#1e90ff;width:0% }
+        .small { font-size:13px;color:#bfe4ff }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <h1>反诈知识答题</h1>
+    <div id="intro" class="intro">
+        <p class="small">请先填写个人信息并开始答题 — 我们会对信息做基本校验。</p>
+        <label>姓名<input id="name" type="text" placeholder="姓名"></label><br><br>
+        <label>手机号<input id="phone" type="text" placeholder="11位手机号"></label><br><br>
+        <label>身份证号<input id="idcard" type="text" placeholder="身份证号"></label><br><br>
+        <button id="startBtn">开始答题</button>
+    </div>
+
+    <div id="quiz" style="display:none;">
+        <div id="progressWrap">
+            <div class="progress"><i id="progressBar"></i></div>
+            <p class="small" id="progressText">进度 0 / 0</p>
+        </div>
+
+        <div id="qbox"></div>
+
+        <div style="margin-top:12px">
+            <button id="prevBtn" style="margin-right:8px">上一题</button>
+            <button id="nextBtn">下一题</button>
+            <button id="submitBtn" style="background:#16a34a;display:none">提交答卷</button>
+        </div>
+
+        <div id="result" style="margin-top:16px"></div>
+    </div>
+</div>
+
+<script>
+    async function fetchQuestions(){
+        const r = await fetch('/api/questions');
+        return r.json();
+    }
+
+    function validName(n){ return n.trim().length>0; }
+    function validPhone(p){ return /^\d{11}$/.test(p); }
+    function validId(id){ return id.trim().length===15 || id.trim().length===18; }
+
+    let allQuestions = [];
+    let order = [];
+    let currentIndex = 0;
+    let answers = {}; // key: qid -> array of indices
+
+    document.getElementById('startBtn').addEventListener('click', async ()=>{
+        const name = document.getElementById('name').value;
+        const phone = document.getElementById('phone').value;
+        const idcard = document.getElementById('idcard').value;
+        if(!validName(name)){ alert('请输入姓名'); return; }
+        if(!validPhone(phone)){ alert('手机号格式错误'); return; }
+        if(!validId(idcard)){ alert('身份证号格式错误'); return; }
+        allQuestions = await fetchQuestions();
+        if(!allQuestions || allQuestions.length===0){ alert('暂无题目'); return; }
+        // build random order
+        order = Array.from(allQuestions.keys());
+        // shuffle
+        for(let i=order.length-1;i>0;i--){
+            const j = Math.floor(Math.random()*(i+1));
+            [order[i],order[j]]=[order[j],order[i]];
+        }
+        currentIndex = 0;
+        answers = {};
+        document.getElementById('intro').style.display='none';
+        document.getElementById('quiz').style.display='block';
+        renderQuestion();
+    });
+
+    function renderQuestion(){
+        const idx = order[currentIndex];
+        const q = allQuestions[idx];
+        const qbox = document.getElementById('qbox');
+        qbox.innerHTML = '';
+        const title = document.createElement('div');
+        title.className='question';
+        title.innerHTML = '<div style="font-weight:600">'+(currentIndex+1)+'. '+q.question+'</div>';
+        const opts = document.createElement('div');
+        opts.className='options';
+        if(q.type==='single' || q.type==='judge'){
+            q.options.forEach((o,i)=>{
+                const div = document.createElement('div'); div.className='option';
+                const radio = document.createElement('input'); radio.type='radio'; radio.name='opt'; radio.value=i;
+                if(answers[q.id] && answers[q.id].includes(i)) radio.checked=true;
+                radio.addEventListener('change', ()=>{ answers[q.id]=[i]; updateButtons(); });
+                const lab = document.createElement('label'); lab.innerText = o;
+                div.appendChild(radio); div.appendChild(lab);
+                opts.appendChild(div);
+            });
+        } else {
+            q.options.forEach((o,i)=>{
+                const div = document.createElement('div'); div.className='option';
+                const cb = document.createElement('input'); cb.type='checkbox'; cb.value=i;
+                if(answers[q.id] && answers[q.id].includes(i)) cb.checked=true;
+                cb.addEventListener('change', ()=>{
+                    const cur = answers[q.id] || [];
+                    const v = parseInt(cb.value);
+                    if(cb.checked){
+                        if(!cur.includes(v)) cur.push(v);
+                    } else {
+                        const idx = cur.indexOf(v); if(idx>=0) cur.splice(idx,1);
+                    }
+                    answers[q.id]=cur;
+                    updateButtons();
+                });
+                const lab = document.createElement('label'); lab.innerText = o;
+                div.appendChild(cb); div.appendChild(lab);
+                opts.appendChild(div);
+            });
+        }
+        title.appendChild(opts);
+        qbox.appendChild(title);
+        updateProgress();
+        updateButtons();
+    }
+
+    function updateProgress(){
+        const pb = document.getElementById('progressBar');
+        const text = document.getElementById('progressText');
+        const perc = Math.round(((currentIndex+1)/order.length)*100);
+        pb.style.width = perc+'%';
+        text.innerText = '进度 '+(currentIndex+1)+' / '+order.length;
+    }
+
+    function updateButtons(){
+        document.getElementById('prevBtn').disabled = currentIndex===0;
+        document.getElementById('nextBtn').style.display = currentIndex===order.length-1 ? 'none' : 'inline-block';
+        document.getElementById('submitBtn').style.display = currentIndex===order.length-1 ? 'inline-block' : 'none';
+    }
+
+    document.getElementById('prevBtn').addEventListener('click', ()=>{
+        if(currentIndex>0){ currentIndex--; renderQuestion(); }
+    });
+    document.getElementById('nextBtn').addEventListener('click', ()=>{
+        if(currentIndex<order.length-1){ currentIndex++; renderQuestion(); }
+    });
+
+    document.getElementById('submitBtn').addEventListener('click', async ()=>{
+        const payload = {
+            name: document.getElementById('name').value,
+            phone: document.getElementById('phone').value,
+            idcard: document.getElementById('idcard').value,
+            answers: {}
+        };
+        // copy answers into payload with q.id keys
+        order.forEach(idx=>{
+            const q = allQuestions[idx];
+            payload.answers[q.id] = answers[q.id] || [];
+        });
+        const r = await fetch('/api/submit', {
+            method:'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(payload)
+        });
+        if(!r.ok){ alert('提交失败: '+(await r.text())); return; }
+        const j = await r.json();
+        const res = document.getElementById('result');
+        res.innerHTML = '<div style="padding:12px;background:rgba(0,0,0,0.4);border-radius:8px;margin-top:8px"><div style="font-weight:700">得分：'+j.score+' / '+j.total+'</div>';
+        if(j.code) res.innerHTML += '<div style="margin-top:6px"><b>兑换码：</b><span style="color:#bff">'+j.code+'</span></div>';
+        res.innerHTML += '<div style="margin-top:8px"><a href="/">返回首页</a></div></div>';
+    });
+</script>
+</body>
+</html>
