@@ -286,8 +286,11 @@
     // 必须身份验证后才能访问
     const name = localStorage.getItem("quiz_name");
     const phone = localStorage.getItem("quiz_phone");
-    const idcard = localStorage.getItem("quiz_idcard");
-    if(!name || !phone || !idcard){
+    const idCard = localStorage.getItem("quiz_idCard");
+    const mask_name = localStorage.getItem("quiz_mask_name");
+    const mask_phone = localStorage.getItem("quiz_mask_phone");
+    const mask_idCard = localStorage.getItem("quiz_mask_idCard");
+    if(!name || !phone || !idCard){
         location.href = "/identity.html";
     }
 
@@ -395,7 +398,7 @@
     document.getElementById("next").onclick=()=>{ if(idx<order.length-1){ idx++; render(); } };
 
     document.getElementById("submit").onclick=async ()=>{
-        const payload = { name, phone, idcard, answers:{} };
+        const payload = { name, phone, idCard, mask_name,mask_phone,mask_idCard,answers:{} };
         order.forEach(i=>{ const q=qs[i]; payload.answers[q.id]=answers[q.id]||[]; });
         const r=await fetch("/api/submit",{
             method:"POST", headers:{"Content-Type":"application/json"},

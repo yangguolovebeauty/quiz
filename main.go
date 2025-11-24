@@ -26,6 +26,7 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"github.com/xuri/excelize/v2"
 
 	qrcode "github.com/skip2/go-qrcode"
 )
@@ -42,6 +43,43 @@ type Question struct {
 	Score   int      `json:"score"`
 }
 
+// CheckUserAnswered 检查用户今天是否已经答题
+func CheckUserAnswered(path, phoneHash, idHash string) (bool, error) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return false, nil
+	}
+
+	f, err := excelize.OpenFile(path)
+	if err != nil {
+		return false, err
+	}
+
+	rows, err := f.GetRows("Sheet1")
+	if err != nil {
+		return false, err
+	}
+
+	today := time.Now().Format("2006-01-02")
+
+	for i, r := range rows {
+		if i == 0 {
+			continue // skip header
+		}
+		if len(r) >= 8 { // 确保有足够的列，第9列是user_hash
+			timestamp := strings.TrimSpace(r[0])
+			recordPhoneHash := strings.TrimSpace(r[2]) // 第9列是id_hash
+			recordIdHash := strings.TrimSpace(r[3])    // 第10列是phone_hash
+
+			// 检查是否是今天的记录并且哈希匹配
+			if strings.Contains(timestamp, today) && recordPhoneHash == phoneHash || strings.Contains(timestamp, today) && recordIdHash == idHash {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
 // squareLayout 强制子元素为一个正方形（边长 = min(可用宽, 可用高)），并居中。
 // 实现 fyne.Layout 接口。
 type squareLayout struct{}
@@ -49,7 +87,8 @@ type squareLayout struct{}
 var (
 	mutex         sync.Mutex
 	questions     []Question
-	codePool      []string
+	prizeLevels   []PrizeLevel
+	prizeCodes    []PrizeCode
 	usedCodes     []string
 	resultsXlsx   string
 	server        *http.Server
@@ -60,6 +99,8 @@ var (
 )
 
 func main() {
+	os.Setenv("FYNE_SCALE", "1")
+
 	a := app.NewWithID("com.example.quizmanager")
 	a.Settings().SetTheme(theme.DarkTheme())
 	w := a.NewWindow("反诈答题 管理后台")
@@ -74,7 +115,7 @@ func main() {
 	qrImg1 := canvas.NewImageFromImage(nil)
 	qrImg1.FillMode = canvas.ImageFillContain
 	// ensure min size square
-	qrImg1.SetMinSize(fyne.NewSize(260, 260))
+	qrImg1.SetMinSize(fyne.NewSize(200, 200))
 
 	// Buttons
 	btnLoadQ := widget.NewButton("加载题库 Excel", func() {
@@ -125,27 +166,33 @@ func main() {
 				dialog.ShowError(err, w)
 				return
 			}
-			codes, err := LoadCodesFromExcel(tmp)
+			levels, codes, err := LoadCodesFromExcel(tmp)
 			if err != nil {
 				dialog.ShowError(err, w)
 				return
 			}
-			mutex.Lock()
-			exist := map[string]bool{}
-			for _, c := range codePool {
-				exist[c] = true
-			}
-			for _, c := range codes {
-				if !exist[c] {
-					codePool = append(codePool, c)
-					exist[c] = true
+
+			// Filter out codes that have been used today
+			availableCodes := []PrizeCode{}
+			for _, code := range codes {
+				used, err := IsCodeUsedToday(resultsXlsx, code.Code)
+				if err != nil {
+					log.Printf("检查兑换码使用状态错误: %v", err)
+					continue
+				}
+				if !used {
+					availableCodes = append(availableCodes, code)
 				}
 			}
+
+			mutex.Lock()
+			prizeLevels = levels
+			prizeCodes = availableCodes
 			mutex.Unlock()
-			codeCount.SetText(fmt.Sprintf("兑换码: %d", len(codePool)))
-			status.SetText("已加载兑换码")
+
+			codeCount.SetText(fmt.Sprintf("可用兑换码: %d", len(availableCodes)))
+			status.SetText(fmt.Sprintf("已加载 %d 个奖品等级, %d 个可用兑换码", len(levels), len(availableCodes)))
 		}, w)
-		//fd.SetTitle("选择兑换码 Excel (.xlsx/.xls)")
 		fd.Show()
 	})
 
@@ -264,12 +311,17 @@ func main() {
 
 	// Build main container that adapts to window size: left fixed, right expands
 	content := container.New(layout.NewBorderLayout(left, nil, nil, nil), left, right)
+	// 👉 加滚动容器（关键）
+	scroll := container.NewVScroll(content)
 
+	w.SetContent(scroll)
 	// Make QR remain square on resize: listen to window size changes and adjust min size
-	w.SetContent(content)
+	//w.SetContent(content)
 	w.Canvas().SetOnTypedKey(func(ev *fyne.KeyEvent) {}) // noop to ensure canvas exists
 
 	w.ShowAndRun()
+	fmt.Println("DPI Scale =", w.Canvas().Scale())
+
 }
 
 // resizeListener implements Fyne canvas listener to adjust QR size (simple approach)
@@ -303,20 +355,156 @@ func (r *resizeListener) CanvasResized(size fyne.Size) {
 }
 
 func localIP() string {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return "127.0.0.1"
+	return getLocalIP()
+}
+
+// getLocalIP 获取本地IP地址（兼容Android 10+）
+func getLocalIP() string {
+	// 方法1: 通过连接外部DNS服务器获取本机IP
+	if ip := getIPFromDNS(); ip != "" {
+		return ip
 	}
-	for _, a := range addrs {
-		s := a.String()
-		if strings.Contains(s, "/") {
-			ip := strings.Split(s, "/")[0]
-			if strings.HasPrefix(ip, "192.") || strings.HasPrefix(ip, "10.") || strings.HasPrefix(ip, "172.") {
-				return ip
+	// 方法2: 尝试常见的局域网网卡
+	if ip := getIPFromInterfaces(); ip != "" {
+		return ip
+	}
+
+	// 方法3: 使用net.LookupHost获取主机名对应的IP
+	if ip := getIPFromHostname(); ip != "" {
+		return ip
+	}
+
+	return "127.0.0.1"
+}
+
+// getIPFromDNS 通过连接DNS服务器获取本机IP
+func getIPFromDNS() string {
+	// 尝试多个公共DNS服务器
+	dnsServers := []string{
+		"8.8.8.8:53",         // Google DNS
+		"1.1.1.1:53",         // Cloudflare DNS
+		"208.67.222.222:53",  // OpenDNS
+		"114.114.114.114:53", // 114 DNS
+	}
+	for _, dnsServer := range dnsServers {
+		conn, err := net.Dial("udp", dnsServer)
+		if err != nil {
+			continue
+		}
+
+		localAddr := conn.LocalAddr().(*net.UDPAddr)
+		ip := localAddr.IP.String()
+		conn.Close()
+
+		// 检查是否是有效的局域网IP
+		if isValidLocalIP(ip) {
+			return ip
+		}
+	}
+	return ""
+}
+
+// getIPFromInterfaces 从网络接口获取IP
+func getIPFromInterfaces() string {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, iface := range interfaces {
+		// 跳过回环接口和未启用接口
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+
+			ip = ip.To4()
+			if ip == nil {
+				continue
+			}
+
+			ipStr := ip.String()
+			if isValidLocalIP(ipStr) {
+				return ipStr
 			}
 		}
 	}
-	return "127.0.0.1"
+	return ""
+}
+
+// getIPFromHostname 通过主机名获取IP
+func getIPFromHostname() string {
+	addrs, err := net.LookupHost("localhost")
+	if err != nil {
+		return ""
+	}
+	for _, addr := range addrs {
+		if ip := net.ParseIP(addr); ip != nil && ip.To4() != nil {
+			ipStr := ip.String()
+			if isValidLocalIP(ipStr) {
+				return ipStr
+			}
+		}
+	}
+	return ""
+}
+
+// isValidLocalIP 检查是否是有效的局域网IP
+func isValidLocalIP(ip string) bool {
+	if ip == "127.0.0.1" || ip == "::1" || ip == "0.0.0.0" {
+		return false
+	}
+	parsedIP := net.ParseIP(ip)
+	if parsedIP == nil {
+		return false
+	}
+
+	// 检查私有IP地址范围
+	privateRanges := []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"169.254.0.0/16", // 链路本地地址
+	}
+
+	for _, cidr := range privateRanges {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue
+		}
+		if network.Contains(parsedIP) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// getNetworkInfo 获取网络信息（主函数）
+func getNetworkInfo() string {
+	ip := getLocalIP()
+	// 如果获取不到有效IP，提供使用说明
+	if ip == "127.0.0.1" {
+		return "无法自动获取IP，请手动查看手机IP地址"
+	}
+
+	return ip
 }
 
 // setupWebHandlers mounts template endpoints and static resource handler (serves from embed)
@@ -331,6 +519,59 @@ func setupWebHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = tStart.Execute(w, nil)
+	})
+	// API: 获取网络信息
+	mux.HandleFunc("/api/network-info", func(w http.ResponseWriter, r *http.Request) {
+		ip := getLocalIP()
+		info := map[string]string{
+			"ip":     ip,
+			"url":    "http://" + ip + listenAddr,
+			"status": "ready",
+		}
+
+		if ip == "127.0.0.1" {
+			info["message"] = "无法自动获取IP，请手动查看手机IP地址"
+			info["status"] = "manual_required"
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(info)
+	})
+
+	// API: check-user 检查用户是否已经答题
+	mux.HandleFunc("/api/check-user", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			PhoneHash string `json:"phone_hash"`
+			IdHash    string `json:"id_hash"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request:"+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if req.PhoneHash == "" || req.IdHash == "" {
+			http.Error(w, "user_hash is required", http.StatusBadRequest)
+			return
+		}
+
+		mutex.Lock()
+		defer mutex.Unlock()
+
+		answered, err := CheckUserAnswered(resultsXlsx, req.PhoneHash, req.IdHash)
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{
+			"answered": answered,
+		})
 	})
 
 	mux.HandleFunc("/identity.html", func(w http.ResponseWriter, r *http.Request) {
@@ -355,7 +596,7 @@ func setupWebHandlers(mux *http.ServeMux) {
 			return
 		}
 		// read from embed
-		b, err := webFS.ReadFile("web/" + path)
+		b, err := webFS.ReadFile("web/static/" + path)
 		if err != nil {
 			http.NotFound(w, r)
 			return
@@ -410,25 +651,29 @@ func setupWebHandlers(mux *http.ServeMux) {
 		_ = json.NewEncoder(w).Encode(arr)
 	})
 
-	// API: submit (processing implemented previously in storage.SaveResultToExcel usage)
+	// API: submit (新的奖品发放逻辑)
 	mux.HandleFunc("/api/submit", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Name    string           `json:"name"`
-			Phone   string           `json:"phone"`
-			IdCard  string           `json:"idcard"`
-			Answers map[string][]int `json:"answers"`
+			Name       string           `json:"name"`
+			Phone      string           `json:"phone"`
+			IdCard     string           `json:"idCard"`
+			MaskName   string           `json:"mask_name"`
+			MaskPhone  string           `json:"mask_phone"`
+			MaskIdCard string           `json:"mask_idCard"`
+			Answers    map[string][]int `json:"answers"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request:"+err.Error(), http.StatusBadRequest)
 			return
 		}
-		// basic validation
-		if strings.TrimSpace(req.Name) == "" || len(req.Phone) != 11 {
+		if strings.TrimSpace(req.Name) == "" || len(req.Phone) != 64 || len(req.IdCard) != 64 {
 			http.Error(w, "invalid info", http.StatusBadRequest)
 			return
 		}
 
 		mutex.Lock()
+		defer mutex.Unlock()
+
 		total := 0
 		score := 0
 		detail := map[string]interface{}{}
@@ -451,23 +696,59 @@ func setupWebHandlers(mux *http.ServeMux) {
 			}
 			detail[q.ID] = map[string]interface{}{"given": givenLabels, "correct": gotScore > 0}
 		}
+
+		// 新的奖品发放逻辑
 		var assigned string
-		if total > 0 && float64(score)/float64(total) >= 0.6 && len(codePool) > 0 {
-			assigned = codePool[0]
-			codePool = codePool[1:]
+		var prizeLevel string
+
+		if total > 0 && len(prizeCodes) > 0 {
+			// 计算百分比分数
+			percentage := int(float64(score) / float64(total) * 100)
+
+			// 按奖品等级从高到低尝试分配
+			for _, levelConfig := range prizeLevels {
+				if percentage >= levelConfig.Score {
+					// 尝试分配该等级的奖品
+					assigned, prizeLevel = assignPrizeByLevel(levelConfig.Level)
+					if assigned != "" {
+						break // 成功分配到奖品，退出循环
+					}
+				}
+			}
+		}
+
+		if assigned != "" {
 			usedCodes = append(usedCodes, assigned)
 		}
-		mutex.Unlock()
 
 		if resultsXlsx == "" {
 			resultsXlsx = filepath.Join(dataDir, "records.xlsx")
 		}
-		_ = SaveResultToExcel(resultsXlsx, req.Name, req.Phone, req.IdCard, score, total, assigned, detail)
+		_ = SaveResultToExcel(resultsXlsx, req.Name, req.Phone, req.IdCard, req.MaskName, req.MaskPhone, req.MaskIdCard, score, total, assigned, detail)
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{"score": score, "total": total, "code": assigned})
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"score":       score,
+			"total":       total,
+			"percentage":  int(float64(score) / float64(total) * 100),
+			"code":        assigned,
+			"prize_level": prizeLevel,
+		})
 	})
 }
+
+// assignPrizeByLevel 按等级分配奖品
+func assignPrizeByLevel(level string) (string, string) {
+	for i, prize := range prizeCodes {
+		if prize.Level == level && !prize.Used {
+			// 标记为已使用并从可用列表中移除
+			prizeCodes[i].Used = true
+			return prize.Code, level
+		}
+	}
+	return "", ""
+}
+
 func (s *squareLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 	if len(objects) == 0 {
 		return
