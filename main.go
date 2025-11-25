@@ -103,7 +103,7 @@ func main() {
 
 	a := app.NewWithID("com.example.quizmanager")
 	a.Settings().SetTheme(theme.DarkTheme())
-	w := a.NewWindow("反诈答题 管理后台")
+	w := a.NewWindow("反诈答题 管理后台 by-杨典")
 	w.Resize(fyne.NewSize(1000, 640))
 
 	// Left controls
